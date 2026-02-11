@@ -1,0 +1,18 @@
+pack_id: emergency-field-pack
+default_metadata:
+  domain: "emergency-response"
+  language: "en"
+sources:
+  - url: https://en.wikipedia.org/wiki/Hyperbaric_medicine
+    metadata:
+      topic: "hyperbaric"
+  - url: https://en.wikipedia.org/wiki/First_aid
+    metadata:
+      topic: "first-aid"
+chunk_size: 5000
+chunk_overlap: 540
+summary_model: gpt-4o-mini
+summary_max_words: 500
+summarization_enabled: true
+ingest_base_url: http://localhost:8000
+batch_size: 16
