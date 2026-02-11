@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     default_top_k: int = 5
     max_batch_size: int = 32
     openai_api_key: Optional[str] = None
+    pack_registry_collection: str = "pack_registry"
 
     class Config:
         env_file = ".env"

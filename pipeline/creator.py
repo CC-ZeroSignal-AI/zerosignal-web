@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List
@@ -69,6 +70,7 @@ class PackCreator:
 
         if not self.dry_run:
             self._upload(aggregated)
+            self._report_metadata(aggregated, config)
         else:
             logger.info("Dry run enabled; skipping upload")
 
@@ -135,3 +137,31 @@ class PackCreator:
     def _batched(iterable: List[ChunkPayload], batch_size: int) -> Iterable[List[ChunkPayload]]:
         for idx in range(0, len(iterable), batch_size):
             yield iterable[idx : idx + batch_size]
+
+    def _report_metadata(self, payloads: List[ChunkPayload], config: PackConfig) -> None:
+        if not payloads:
+            logger.info("No payloads to report for metadata")
+            return
+        topic_counts: Counter[str] = Counter()
+        source_urls: set[str] = set()
+        for chunk in payloads:
+            topic = chunk.document.metadata.get("topic") or "unspecified"
+            topic_counts[str(topic)] += 1
+            source_url = chunk.document.metadata.get("source_url")
+            if source_url:
+                source_urls.add(str(source_url))
+        metadata_payload = {
+            "total_documents": len(payloads),
+            "topics": [
+                {"name": name, "document_count": count}
+                for name, count in sorted(topic_counts.items())
+            ],
+            "source_urls": sorted(source_urls),
+            "metadata": {
+                "default_metadata": config.default_metadata,
+                "chunk_size": config.chunk_size,
+                "chunk_overlap": config.chunk_overlap,
+                "summary_model": config.summary_model if config.summarization_enabled else None,
+            },
+        }
+        self.ingestor.update_metadata(self.pack_id, metadata_payload)

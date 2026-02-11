@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -13,23 +14,27 @@ from .schemas import (
     EmbeddingRecord,
     IngestRequest,
     IngestResponse,
+    PackMetadata,
+    PackMetadataUpsert,
     SearchRequest,
     SearchResult,
 )
+from .registry import PackRegistry
 from .vector_store import VectorStore
 
 
 app = FastAPI(title="Cognit-Edge Embedding Service", version="0.1.0")
 
 
-def _init_services() -> tuple[Settings, EmbeddingService, VectorStore]:
+def _init_services() -> tuple[Settings, EmbeddingService, VectorStore, PackRegistry]:
     settings = get_settings()
     embedder = EmbeddingService(settings.embedding_model_name)
     store = VectorStore(settings)
-    return settings, embedder, store
+    registry = PackRegistry(settings)
+    return settings, embedder, store, registry
 
 
-SETTINGS, EMBEDDER, STORE = _init_services()
+SETTINGS, EMBEDDER, STORE, REGISTRY = _init_services()
 
 
 def get_embedding_service() -> EmbeddingService:
@@ -40,9 +45,43 @@ def get_vector_store() -> VectorStore:
     return STORE
 
 
+def get_registry() -> PackRegistry:
+    return REGISTRY
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/packs", response_model=List[PackMetadata])
+def list_packs(registry: PackRegistry = Depends(get_registry)) -> List[PackMetadata]:
+    return registry.list_packs()
+
+
+@app.get("/packs/{pack_id}", response_model=PackMetadata)
+def fetch_pack_metadata(pack_id: str, registry: PackRegistry = Depends(get_registry)) -> PackMetadata:
+    pack = registry.get_pack(pack_id)
+    if not pack:
+        raise HTTPException(status_code=404, detail="Pack metadata not found")
+    return pack
+
+
+@app.put("/packs/{pack_id}/metadata", response_model=PackMetadata)
+def upsert_pack_metadata(
+    pack_id: str,
+    payload: PackMetadataUpsert,
+    registry: PackRegistry = Depends(get_registry),
+) -> PackMetadata:
+    metadata = PackMetadata(
+        pack_id=pack_id,
+        total_documents=payload.total_documents,
+        topics=payload.topics,
+        source_urls=payload.source_urls,
+        metadata=payload.metadata,
+        last_ingested_at=datetime.utcnow(),
+    )
+    return registry.upsert(metadata)
 
 
 @app.post("/packs/{pack_id}/documents", response_model=IngestResponse)

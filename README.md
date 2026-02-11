@@ -12,7 +12,8 @@ Everything here is geared toward an MVP that can be run locally but deploys clea
 - **Vector database**: Qdrant Cloud (free tier: 1M vectors / 1GB). Swap `server/app/vector_store.py` if you move to Pinecone/Weaviate/etc.
 - **Embeddings**: `sentence-transformers/all-MiniLM-L6-v2` (384-dim, ~1.5 KB per chunk). Change `EMBEDDING_MODEL_NAME` in `.env` if you need another model.
 - **Pipeline**: Scraper → chunker → optional OpenAI summarizer → uploader. Chunk size determines how many vectors land on-device. We currently target ~5 k characters per chunk (≈36 vectors for the sample pack), but you can tune per pack.
-- **Android flow**: Device calls `GET /packs/{pack_id}/download`, following the cursor until `next_offset` is `null`, and persists each `{document_id, text, metadata, embedding}` record inside ObjectBox for offline RAG.
+- **Pack registry**: Stored directly in Qdrant via a dedicated collection, so it survives serverless deployments. The pipeline updates this automatically after every ingestion, letting other services (or Android) query `GET /packs` for current topics.
+- **Android flow**: Device calls `GET /packs` to enumerate packs, then `GET /packs/{pack_id}/download`, following the cursor until `next_offset` is `null`, persisting each `{document_id, text, metadata, embedding}` record inside ObjectBox for offline RAG.
 
 ---
 
@@ -102,8 +103,9 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir .
    python -m pipeline.cli --config pipeline/examples/sample-pack.yaml
    ```
    - The CLI fetches all sources, runs the summarizer (or not), then pushes batches to `POST /packs/{pack_id}/documents`.
+   - After uploads succeed, the CLI also calls `PUT /packs/{pack_id}/metadata` so the server’s registry reflects topic stats, total embeddings, and source URLs.
    - Re-running the same config simply overwrites matching `document_id`s (format: `<pack_id>-<source_idx>-<chunk_idx>`).
-4. **Cleaning up / re-ingesting**: if you want to nuke a pack entirely (e.g., before changing chunk sizes), delete the Qdrant collection named `context_pack_<pack_id>` via the Qdrant UI or client, then rerun the pipeline.
+4. **Cleaning up / re-ingesting**: if you want to nuke a pack entirely (e.g., before changing chunk sizes), delete the Qdrant collection named `context_pack_<pack_id>` via the Qdrant UI or client, then rerun the pipeline. The registry entry lives in Qdrant as well and will be overwritten the next time the pipeline runs.
 
 ---
 
@@ -111,9 +113,60 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir .
 | Method & Path | Description |
 | --- | --- |
 | `GET /health` | Simple readiness probe |
+| `GET /packs` | Returns every pack in the registry along with topic counts and metadata |
+| `GET /packs/{pack_id}` | Retrieves metadata for one pack |
+| `PUT /packs/{pack_id}/metadata` | Upserts pack metadata (used by the pipeline) |
 | `POST /packs/{pack_id}/documents` | Accepts `{document_id, text, metadata}` chunks, embeds them, and upserts into Qdrant |
 | `POST /packs/{pack_id}/search` | Runs semantic similarity search; useful for server-side RAG or QA |
 | `GET /packs/{pack_id}/download?limit=…&offset=…` | Streams stored chunks + embeddings for offline/ObjectBox sync |
+
+### Pack catalog (`GET /packs`)
+```bash
+curl http://localhost:8000/packs
+```
+Response:
+```json
+[
+  {
+    "pack_id": "emergency-field-pack",
+    "total_documents": 36,
+    "topics": [
+      {"name": "first-aid", "document_count": 16},
+      {"name": "hyperbaric", "document_count": 20}
+    ],
+    "source_urls": [
+      "https://en.wikipedia.org/wiki/First_aid",
+      "https://en.wikipedia.org/wiki/Hyperbaric_medicine"
+    ],
+    "metadata": {
+      "default_metadata": {"domain": "emergency-response", "language": "en"},
+      "chunk_size": 5000
+    },
+    "last_ingested_at": "2026-02-10T19:23:27Z"
+  }
+]
+```
+
+### Pack metadata (`GET /packs/{pack_id}`)
+Returns a single entry (same shape as above) for the requested pack.
+
+### Metadata upsert (`PUT /packs/{pack_id}/metadata`)
+You rarely call this manually—the pipeline does it after every ingestion. Payload shape:
+```json
+{
+  "total_documents": 36,
+  "topics": [
+    {"name": "first-aid", "document_count": 16},
+    {"name": "hyperbaric", "document_count": 20}
+  ],
+  "source_urls": ["https://..."],
+  "metadata": {
+    "default_metadata": {"domain": "emergency-response"},
+    "chunk_size": 5000,
+    "summary_model": "gpt-4o-mini"
+  }
+}
+```
 
 ### Ingestion (`POST /packs/{pack_id}/documents`)
 ```bash
@@ -178,10 +231,11 @@ Keep calling the endpoint with the last `next_offset` until it returns `null` to
 ---
 
 ## Android/offline sync flow
-1. Trigger the pipeline (or other ingestion tool) to push updated packs whenever content changes.
-2. Device hits `GET /packs/{pack_id}/download?limit=…` on a schedule (or after receiving a push) and stores each `DownloadItem` into ObjectBox: `{document_id, text, metadata, embedding}`.
-3. Continue paging with the supplied cursor until `next_offset` becomes `null`. Persist the last cursor so the device can resume if the sync is interrupted.
-4. Optionally invoke `POST /packs/{pack_id}/search` when the device needs cloud-side re-ranking (e.g., to fetch only the top-N authoritative chunks before syncing).
+1. Call `GET /packs` (or `/packs/{pack_id}`) to discover what packs/topics exist and decide which ones to download.
+2. Trigger the pipeline (or other ingestion tool) whenever content changes so the registry stays fresh.
+3. Device hits `GET /packs/{pack_id}/download?limit=…` on a schedule (or after a push) and stores each `DownloadItem` into ObjectBox: `{document_id, text, metadata, embedding}`.
+4. Continue paging with the supplied cursor until `next_offset` becomes `null`. Persist the last cursor so the device can resume if the sync is interrupted.
+5. Optionally invoke `POST /packs/{pack_id}/search` when the device needs cloud-side re-ranking (for example to pull only the top-N authoritative chunks before syncing).
 
 ---
 

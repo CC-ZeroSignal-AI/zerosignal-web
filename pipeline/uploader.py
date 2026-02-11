@@ -23,3 +23,9 @@ class EmbeddingIngestor:
         response.raise_for_status()
         data = response.json()
         return int(data.get("stored", 0))
+
+    def update_metadata(self, pack_id: str, payload: dict) -> None:
+        url = f"{self._base_url}/packs/{pack_id}/metadata"
+        logger.info("Updating metadata for %s", pack_id)
+        response = requests.put(url, json=payload, timeout=self._timeout)
+        response.raise_for_status()

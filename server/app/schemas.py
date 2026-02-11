@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, validator
@@ -66,3 +67,24 @@ class EmbeddingRecord:
     embedding: List[float]
     metadata: Dict[str, Any]
     point_id: Optional[str] = None
+
+
+class TopicStat(BaseModel):
+    name: str
+    document_count: int
+
+
+class PackMetadata(BaseModel):
+    pack_id: str
+    total_documents: int
+    topics: List[TopicStat]
+    source_urls: List[str]
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    last_ingested_at: datetime
+
+
+class PackMetadataUpsert(BaseModel):
+    total_documents: int = Field(..., ge=0)
+    topics: List[TopicStat]
+    source_urls: List[str]
+    metadata: Dict[str, Any] = Field(default_factory=dict)
