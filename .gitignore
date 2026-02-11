@@ -27,3 +27,4 @@ ENV/
 *.json
 
 initial-idea
+.env.example
