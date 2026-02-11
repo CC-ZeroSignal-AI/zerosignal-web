@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import uuid
 from typing import List, Optional
 
 from qdrant_client import QdrantClient
@@ -49,25 +50,22 @@ class PackRegistry:
         return results
 
     def get_pack(self, pack_id: str) -> Optional[PackMetadata]:
-        result = self._client.retrieve(
-            collection_name=self._collection,
-            ids=[pack_id],
-            with_payload=True,
-        )
-        if not result:
-            return None
-        return self._payload_to_metadata(result[0].payload)
+        for pack in self.list_packs():
+            if pack.pack_id == pack_id:
+                return pack
+        return None
 
     def upsert(self, metadata: PackMetadata) -> PackMetadata:
         payload = metadata.model_dump()
         payload["last_ingested_at"] = metadata.last_ingested_at.isoformat()
         topics = [topic.dict() for topic in metadata.topics]
         payload["topics"] = topics
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, metadata.pack_id))
         self._client.upsert(
             collection_name=self._collection,
             points=[
                 qm.PointStruct(
-                    id=metadata.pack_id,
+                    id=point_id,
                     vector=[0.0],
                     payload=payload,
                 )
