@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg*
+.eggs/
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Environment files / secrets
+*.env
+.env
+.envrc
+
+# Editors / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Pipeline exports
+/tmp/
+*.json
+
+initial-idea
