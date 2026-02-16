@@ -23,8 +23,8 @@ class NoOpSummarizer(BaseSummarizer):
 class LLMSummarizer(BaseSummarizer):
     """Uses an OpenAI-compatible model to condense text."""
 
-    def __init__(self, api_key: str, model: str, temperature: float = 0.2) -> None:
-        self._client = OpenAI(api_key=api_key)
+    def __init__(self, api_key: str, model: str, temperature: float = 0.2, base_url: Optional[str] = None) -> None:
+        self._client = OpenAI(api_key=api_key, base_url=base_url)
         self._model = model
         self._temperature = temperature
 

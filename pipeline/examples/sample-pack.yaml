@@ -11,7 +11,7 @@ sources:
       topic: "first-aid"
 chunk_size: 5000
 chunk_overlap: 540
-summary_model: gpt-4o-mini
+summary_model: gpt-oss-120b
 summary_max_words: 500
 summarization_enabled: true
 # qdrant_url and qdrant_api_key are read from env vars (QDRANT_URL, QDRANT_API_KEY)

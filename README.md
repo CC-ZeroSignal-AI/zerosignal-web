@@ -1,19 +1,18 @@
-# Cognit-Edge Embedding Platform
+# ZeroSignal Embedding Platform
 
 This repository contains:
-1. **FastAPI embedding server** – turns uploaded context chunks into embeddings, stores them in Qdrant (cloud or self-hosted), and exposes APIs for ingestion, search, and offline download.
-2. **Automation pipeline** – scrapes vetted URLs, optionally summarizes them with an LLM, and uploads the resulting pack to the server so Android/ObjectBox clients can sync a compact, offline-ready knowledge base.
-
-Everything here is geared toward an MVP that can be run locally but deploys cleanly once you point it at Qdrant Cloud.
+1. **Read-only FastAPI server** – deployed on Vercel, serves pack metadata and embeddings from Qdrant Cloud for Android/ObjectBox clients to sync offline knowledge bases.
+2. **Local pipeline** – scrapes vetted URLs, optionally summarizes them with an LLM, embeds text locally with `sentence-transformers`, and writes vectors directly to Qdrant Cloud.
 
 ---
 
 ## Architecture at a glance
-- **Vector database**: Qdrant Cloud (free tier: 1M vectors / 1GB). Swap `server/app/vector_store.py` if you move to Pinecone/Weaviate/etc.
-- **Embeddings**: `sentence-transformers/all-MiniLM-L6-v2` (384-dim, ~1.5 KB per chunk). Change `EMBEDDING_MODEL_NAME` in `.env` if you need another model.
-- **Pipeline**: Scraper → chunker → optional OpenAI summarizer → uploader. Chunk size determines how many vectors land on-device. We currently target ~5 k characters per chunk (≈36 vectors for the sample pack), but you can tune per pack.
-- **Pack registry**: Stored directly in Qdrant via a dedicated collection, so it survives serverless deployments. The pipeline updates this automatically after every ingestion, letting other services (or Android) query `GET /packs` for current topics.
-- **Android flow**: Device calls `GET /packs` to enumerate packs, then `GET /packs/{pack_id}/download`, following the cursor until `next_offset` is `null`, persisting each `{document_id, text, metadata, embedding}` record inside ObjectBox for offline RAG.
+- **Vector database**: Qdrant Cloud (free tier: 1M vectors / 1GB).
+- **Embeddings**: `sentence-transformers/all-MiniLM-L6-v2` (384-dim, ~1.5 KB per chunk). Generated locally by the pipeline — the server has no ML dependencies.
+- **Pipeline** (runs locally): Scraper → chunker → optional LLM summarizer → sentence-transformers embedding → direct Qdrant write. No server involved.
+- **Server** (deployed on Vercel): Read-only API over Qdrant. Serves `GET /packs`, `GET /packs/{pack_id}`, and `GET /packs/{pack_id}/download`.
+- **Pack registry**: Stored in a dedicated Qdrant collection (`pack_registry`). The pipeline updates this automatically after every ingestion.
+- **Android flow**: Device calls `GET /packs` to discover available packs, then `GET /packs/{pack_id}/download` with cursor pagination, persisting each `{document_id, text, metadata, embedding}` record in ObjectBox for offline RAG.
 
 ---
 
@@ -21,54 +20,62 @@ Everything here is geared toward an MVP that can be run locally but deploys clea
 ```
 server/
   app/
-    config.py        # Pydantic settings loaded from server/.env
-    embeddings.py    # Lazy SentenceTransformer wrapper
-    main.py          # FastAPI app + routes
-    schemas.py       # Pydantic request/response models
-    vector_store.py  # Qdrant client wrapper
-  requirements.txt  # Shared deps for server + pipeline
-  .env.example      # Template for Qdrant + model settings
+    config.py        # Pydantic settings loaded from env vars
+    main.py          # FastAPI app (read-only endpoints)
+    schemas.py       # Pydantic response models
+    vector_store.py  # Qdrant read-only client wrapper
+    registry.py      # Pack registry reader
+  requirements.txt   # Server deps (no ML libraries)
+  .env.example       # Template for Qdrant settings
 pipeline/
-  chunker.py, scraper.py, summarizer.py, uploader.py, creator.py, cli.py
-  examples/sample-pack.yaml  # Starter pack definition
-initial-idea         # Original product brief (reference only)
+  cli.py             # Entry point
+  config.py          # Pack YAML config + env var fallbacks
+  schemas.py         # DocumentChunk model
+  creator.py         # Orchestrator: scrape → chunk → summarize → upload
+  uploader.py        # QdrantUploader: embeds locally + writes to Qdrant
+  chunker.py         # Text chunking with overlap
+  scraper.py         # Web scraper (BeautifulSoup)
+  summarizer.py      # LLM summarizer (OpenAI-compatible API)
+  requirements.txt   # Pipeline deps (sentence-transformers, qdrant-client, etc.)
+  examples/
+    sample-pack.yaml # Starter pack definition
 ```
 
 ---
 
 ## Environment setup
+
+### Server (Vercel)
+The server only needs Qdrant credentials. Set these as Vercel environment variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `QDRANT_URL` | Qdrant Cloud endpoint |
+| `QDRANT_API_KEY` | API key from Qdrant dashboard |
+| `COLLECTION_NAME_PREFIX` | Collection prefix (default `context_pack_`) |
+
+### Pipeline (local)
 1. **Python & virtualenv**
    ```bash
    cd server
    python -m venv .venv
    source .venv/bin/activate
-   pip install -r requirements.txt
+   pip install -r ../pipeline/requirements.txt
    ```
-2. **Server `.env`** – copy the template and fill in secrets (never commit the real file):
+2. **`.env` file** – create `server/.env` from the template:
    ```bash
    cp .env.example .env
    ```
    | Variable | Purpose |
    | --- | --- |
-   | `QDRANT_URL` | Qdrant Cloud HTTPS endpoint (or `http://localhost:6333` for self-hosting) |
+   | `QDRANT_URL` | Qdrant Cloud endpoint |
    | `QDRANT_API_KEY` | API key from Qdrant dashboard |
-   | `EMBEDDING_MODEL_NAME` | SentenceTransformers identifier |
-   | `COLLECTION_NAME_PREFIX` | Helps isolate dev/test packs (default `context_pack_`) |
-   | `DEFAULT_TOP_K` | Fallback for `/search` if `top_k` not provided |
-   | `OPENAI_API_KEY` (optional) | Passed through for the pipeline CLI so you don’t have to export it elsewhere |
-3. **Pipeline env** – the CLI reads `OPENAI_API_KEY` from the shell. You can keep it in `server/.env` and `source .env` before running `python -m pipeline.cli`, or load it via your shell profile/direnv. When unset, the pipeline skips the LLM summarizer and uploads raw chunks.
+   | `EMBEDDING_MODEL_NAME` | SentenceTransformers model (default `sentence-transformers/all-MiniLM-L6-v2`) |
+   | `COLLECTION_NAME_PREFIX` | Collection prefix (default `context_pack_`) |
+   | `OPENAI_API_KEY` | API key for LLM summarization |
+   | `OPENAI_API_BASE` | Base URL for OpenAI-compatible API (e.g. `https://llm-api.arc.vt.edu/api/v1`) |
 
----
-
-## Running the server locally
-From the repo root:
-```bash
-cd server
-source .venv/bin/activate
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir .
-```
-- Leave this terminal running while the pipeline ingests packs.
-- In production, drop `--reload`, add a process manager (systemd, supervisord, Docker, etc.), and make sure `.env` is present or env vars are injected another way.
+   When `OPENAI_API_KEY` is unset, the pipeline skips summarization and uploads raw chunks.
 
 ---
 
@@ -83,46 +90,49 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir .
      - url: https://en.wikipedia.org/wiki/Hyperbaric_medicine
        metadata:
          topic: hyperbaric
-   chunk_size: 5000        # characters per chunk after cleanup
-   chunk_overlap: 400      # overlap keeps continuity between chunks
-   summary_model: gpt-4o-mini
-   summary_max_words: 250  # target length of the LLM-compressed chunk
+   chunk_size: 5000
+   chunk_overlap: 540
+   summary_model: gpt-oss-120b
+   summary_max_words: 500
    summarization_enabled: true
-   ingest_base_url: http://localhost:8000
+   # qdrant_url and qdrant_api_key are read from env vars
+   embedding_model_name: sentence-transformers/all-MiniLM-L6-v2
    batch_size: 16
    ```
-   - Each source inherits `default_metadata` plus its own metadata. The scraper stores `source_url` and `source_title` automatically so provenance survives all the way to Android.
-   - Chunk count ≈ `ceil(total_chars / (chunk_size - chunk_overlap))`. Each chunk becomes one embedding, so tune the numbers to hit your storage budget.
+   - `qdrant_url` and `qdrant_api_key` fall back to `QDRANT_URL` / `QDRANT_API_KEY` env vars when not specified in the YAML.
+   - Each source inherits `default_metadata` plus its own metadata. The scraper stores `source_url` and `source_title` automatically.
+
 2. **Dry-run first** (optional sanity check):
    ```bash
    python -m pipeline.cli --config pipeline/examples/sample-pack.yaml --dry-run --output /tmp/pack.json
    ```
    Open `/tmp/pack.json` to inspect the summarized text + metadata before uploading.
+
 3. **Ingest for real**:
    ```bash
+   set -a && source server/.env && set +a
    python -m pipeline.cli --config pipeline/examples/sample-pack.yaml
    ```
-   - The CLI fetches all sources, runs the summarizer (or not), then pushes batches to `POST /packs/{pack_id}/documents`.
-   - After uploads succeed, the CLI also calls `PUT /packs/{pack_id}/metadata` so the server’s registry reflects topic stats, total embeddings, and source URLs.
-   - Re-running the same config simply overwrites matching `document_id`s (format: `<pack_id>-<source_idx>-<chunk_idx>`).
-4. **Cleaning up / re-ingesting**: if you want to nuke a pack entirely (e.g., before changing chunk sizes), delete the Qdrant collection named `context_pack_<pack_id>` via the Qdrant UI or client, then rerun the pipeline. The registry entry lives in Qdrant as well and will be overwritten the next time the pipeline runs.
+   - The pipeline fetches all sources, runs the summarizer (or not), embeds text locally with sentence-transformers, and writes vectors directly to Qdrant.
+   - After uploads succeed, the pipeline also writes pack registry metadata to Qdrant so `GET /packs` reflects topic stats, total embeddings, and source URLs.
+   - Re-running the same config adds new vectors (use deterministic `document_id` format: `<pack_id>-<source_idx>-<chunk_idx>`).
+
+4. **Cleaning up / re-ingesting**: to nuke a pack entirely, delete the Qdrant collection named `context_pack_<pack_id>` via the Qdrant UI or client, then rerun the pipeline. The registry entry will be overwritten on the next run.
 
 ---
 
-## API reference
+## API reference (server)
+
 | Method & Path | Description |
 | --- | --- |
-| `GET /health` | Simple readiness probe |
-| `GET /packs` | Returns every pack in the registry along with topic counts and metadata |
-| `GET /packs/{pack_id}` | Retrieves metadata for one pack |
-| `PUT /packs/{pack_id}/metadata` | Upserts pack metadata (used by the pipeline) |
-| `POST /packs/{pack_id}/documents` | Accepts `{document_id, text, metadata}` chunks, embeds them, and upserts into Qdrant |
-| `POST /packs/{pack_id}/search` | Runs semantic similarity search; useful for server-side RAG or QA |
-| `GET /packs/{pack_id}/download?limit=…&offset=…` | Streams stored chunks + embeddings for offline/ObjectBox sync |
+| `GET /health` | Readiness probe |
+| `GET /packs` | List all packs with topic counts and metadata |
+| `GET /packs/{pack_id}` | Metadata for one pack |
+| `GET /packs/{pack_id}/download?limit=…&offset=…` | Download stored chunks + embeddings (paginated) |
 
 ### Pack catalog (`GET /packs`)
 ```bash
-curl http://localhost:8000/packs
+curl https://zerosignal-web.vercel.app/packs
 ```
 Response:
 ```json
@@ -150,54 +160,9 @@ Response:
 ### Pack metadata (`GET /packs/{pack_id}`)
 Returns a single entry (same shape as above) for the requested pack.
 
-### Metadata upsert (`PUT /packs/{pack_id}/metadata`)
-You rarely call this manually—the pipeline does it after every ingestion. Payload shape:
-```json
-{
-  "total_documents": 36,
-  "topics": [
-    {"name": "first-aid", "document_count": 16},
-    {"name": "hyperbaric", "document_count": 20}
-  ],
-  "source_urls": ["https://..."],
-  "metadata": {
-    "default_metadata": {"domain": "emergency-response"},
-    "chunk_size": 5000,
-    "summary_model": "gpt-4o-mini"
-  }
-}
-```
-
-### Ingestion (`POST /packs/{pack_id}/documents`)
-```bash
-curl -X POST http://localhost:8000/packs/emergency-field-pack/documents \
-     -H "Content-Type: application/json" \
-     -d '{
-           "documents": [
-             {
-               "document_id": "emergency-field-pack-00-0001",
-               "text": "Condensed instructions...",
-               "metadata": {"domain": "emergency-response", "topic": "hyperbaric"}
-             }
-           ]
-         }'
-```
-Response:
-```json
-{"stored": 1}
-```
-
-### Search (`POST /packs/{pack_id}/search`)
-```bash
-curl -X POST http://localhost:8000/packs/emergency-field-pack/search \
-     -H "Content-Type: application/json" \
-     -d '{"query": "hyperbaric chamber safety", "top_k": 5}'
-```
-Returns a list of `{document_id, text, metadata, score}` sorted by cosine similarity.
-
 ### Download (`GET /packs/{pack_id}/download`)
 ```bash
-curl "http://localhost:8000/packs/emergency-field-pack/download?limit=5"
+curl "https://zerosignal-web.vercel.app/packs/emergency-field-pack/download?limit=5"
 ```
 Response:
 ```json
@@ -221,34 +186,32 @@ Response:
   ]
 }
 ```
-Keep calling the endpoint with the last `next_offset` until it returns `null` to retrieve the entire pack. Android/ObjectBox should store the cursor so it can resume interrupted syncs.
+Keep calling the endpoint with the last `next_offset` until it returns `null` to retrieve the entire pack. Android/ObjectBox should persist the cursor so it can resume interrupted syncs.
 
 ### Pack identifiers (`pack_id`)
 - Choose stable, URL-safe slugs: `emergency-field-pack`, `naval-maintenance-v1`, etc.
-- The same ID must be used by the pipeline YAML, the ingestion API, and the Android client.
+- The same ID must be used by the pipeline YAML and the Android client.
 - Internally, collections are named `context_pack_<pack_id>` (sanitized). Deleting a pack = deleting that collection in Qdrant.
 
 ---
 
 ## Android/offline sync flow
-1. Call `GET /packs` (or `/packs/{pack_id}`) to discover what packs/topics exist and decide which ones to download.
-2. Trigger the pipeline (or other ingestion tool) whenever content changes so the registry stays fresh.
-3. Device hits `GET /packs/{pack_id}/download?limit=…` on a schedule (or after a push) and stores each `DownloadItem` into ObjectBox: `{document_id, text, metadata, embedding}`.
+1. Call `GET /packs` to discover what packs/topics exist and decide which ones to download.
+2. Run the pipeline locally whenever content changes so the registry stays fresh.
+3. Device hits `GET /packs/{pack_id}/download?limit=…` and stores each `DownloadItem` into ObjectBox: `{document_id, text, metadata, embedding}`.
 4. Continue paging with the supplied cursor until `next_offset` becomes `null`. Persist the last cursor so the device can resume if the sync is interrupted.
-5. Optionally invoke `POST /packs/{pack_id}/search` when the device needs cloud-side re-ranking (for example to pull only the top-N authoritative chunks before syncing).
 
 ---
 
 ## Validation checklist
-- **Server health**: `curl http://localhost:8000/health` → `{ "status": "ok" }`.
+- **Server health**: `curl https://zerosignal-web.vercel.app/health` returns `{"status": "ok"}`.
 - **Pipeline dry-run**: inspect exported JSON to ensure summaries + metadata look right.
-- **End-to-end ingestion**: run the pipeline (without `--dry-run`), then verify `GET /packs/<id>/download?limit=5` returns the newly ingested text and embeddings.
+- **End-to-end ingestion**: run the pipeline, then verify `GET /packs/<id>/download?limit=5` returns the newly ingested text and embeddings.
 - **Android smoke test**: import a batch into ObjectBox, run a local cosine search, and ensure the embeddings produce relevant nearest neighbors.
 
 ---
 
 ## Next steps / production hardening
-- Add authentication/authorization (API keys, JWTs, mTLS) before exposing the endpoints publicly.
-- Configure HTTPS termination and WAF/CDN according to your deployment environment.
+- Add authentication/authorization (API keys, JWTs) before exposing the endpoints publicly.
+- Configure HTTPS termination and CDN according to your deployment environment.
 - Introduce duplicate detection or human QA in the pipeline if you ingest regulated material.
-- Swap out Qdrant Cloud for another vector DB by replacing `VectorStore` with a compatible client.

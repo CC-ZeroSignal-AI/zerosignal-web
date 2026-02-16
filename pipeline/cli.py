@@ -59,7 +59,8 @@ def main() -> None:
         if not api_key:
             logger.warning("OPENAI_API_KEY not set; falling back to raw chunks")
         else:
-            summarizer = LLMSummarizer(api_key=api_key, model=config.summary_model)
+            base_url = os.getenv("OPENAI_API_BASE")
+            summarizer = LLMSummarizer(api_key=api_key, model=config.summary_model, base_url=base_url)
 
     qdrant_client = QdrantClient(url=config.qdrant_url, api_key=config.qdrant_api_key)
     embedding_model = SentenceTransformer(config.embedding_model_name)
