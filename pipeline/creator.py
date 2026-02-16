@@ -7,13 +7,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List
 
-from server.app.schemas import DocumentChunk
-
 from .chunker import TextChunker
 from .config import PackConfig
+from .schemas import DocumentChunk
 from .scraper import SourceDocument, WebScraper
 from .summarizer import BaseSummarizer
-from .uploader import EmbeddingIngestor
+from .uploader import QdrantUploader
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +29,7 @@ class PackCreator:
         scraper: WebScraper,
         chunker: TextChunker,
         summarizer: BaseSummarizer,
-        ingestor: EmbeddingIngestor,
+        ingestor: QdrantUploader,
         *,
         pack_id: str,
         batch_size: int,
@@ -111,7 +110,7 @@ class PackCreator:
         for batch in self._batched(payloads, self.batch_size):
             stored = self.ingestor.ingest(
                 self.pack_id,
-                [chunk.document.model_dump() for chunk in batch],
+                [chunk.document for chunk in batch],
             )
             logger.info("Server stored %s documents", stored)
 
@@ -164,4 +163,4 @@ class PackCreator:
                 "summary_model": config.summary_model if config.summarization_enabled else None,
             },
         }
-        self.ingestor.update_metadata(self.pack_id, metadata_payload)
+        self.ingestor.upsert_registry(self.pack_id, metadata_payload)

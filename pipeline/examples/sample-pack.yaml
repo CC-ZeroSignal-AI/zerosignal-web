@@ -14,5 +14,6 @@ chunk_overlap: 540
 summary_model: gpt-4o-mini
 summary_max_words: 500
 summarization_enabled: true
-ingest_base_url: http://localhost:8000
+# qdrant_url and qdrant_api_key are read from env vars (QDRANT_URL, QDRANT_API_KEY)
+embedding_model_name: sentence-transformers/all-MiniLM-L6-v2
 batch_size: 16

@@ -5,12 +5,15 @@ import logging
 import os
 from pathlib import Path
 
+from qdrant_client import QdrantClient
+from sentence_transformers import SentenceTransformer
+
 from .chunker import TextChunker
 from .config import PackConfig
 from .creator import PackCreator
 from .scraper import WebScraper
 from .summarizer import LLMSummarizer, NoOpSummarizer
-from .uploader import EmbeddingIngestor
+from .uploader import QdrantUploader
 
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
@@ -47,7 +50,7 @@ def main() -> None:
     config = PackConfig.from_file(args.config)
     pack_id = args.override_pack_id or config.pack_id
 
-    scraper = WebScraper(timeout=config.request_timeout)
+    scraper = WebScraper()
     chunker = TextChunker(config.chunk_size, config.chunk_overlap)
 
     summarizer = NoOpSummarizer()
@@ -58,7 +61,13 @@ def main() -> None:
         else:
             summarizer = LLMSummarizer(api_key=api_key, model=config.summary_model)
 
-    ingestor = EmbeddingIngestor(base_url=config.ingest_base_url, timeout=config.request_timeout)
+    qdrant_client = QdrantClient(url=config.qdrant_url, api_key=config.qdrant_api_key)
+    embedding_model = SentenceTransformer(config.embedding_model_name)
+    ingestor = QdrantUploader(
+        client=qdrant_client,
+        model=embedding_model,
+        collection_name_prefix=config.collection_name_prefix,
+    )
 
     output_path = Path(args.output).expanduser() if args.output else None
 

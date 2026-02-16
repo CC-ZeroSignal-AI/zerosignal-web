@@ -1,0 +1,8 @@
+sentence-transformers>=2.2.0
+qdrant-client==1.9.1
+requests==2.31.0
+beautifulsoup4==4.12.3
+PyYAML==6.0.1
+openai==1.14.3
+pydantic==2.6.4
+numpy>=1.24.0

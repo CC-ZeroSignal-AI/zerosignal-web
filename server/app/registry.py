@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-import uuid
 from typing import List, Optional
 
 from qdrant_client import QdrantClient
@@ -13,7 +12,7 @@ from .schemas import PackMetadata, TopicStat
 
 
 class PackRegistry:
-    """Stores pack metadata inside a dedicated Qdrant collection."""
+    """Reads pack metadata from a dedicated Qdrant collection."""
 
     def __init__(self, settings: Settings) -> None:
         self._client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
@@ -54,24 +53,6 @@ class PackRegistry:
             if pack.pack_id == pack_id:
                 return pack
         return None
-
-    def upsert(self, metadata: PackMetadata) -> PackMetadata:
-        payload = metadata.model_dump()
-        payload["last_ingested_at"] = metadata.last_ingested_at.isoformat()
-        topics = [topic.dict() for topic in metadata.topics]
-        payload["topics"] = topics
-        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, metadata.pack_id))
-        self._client.upsert(
-            collection_name=self._collection,
-            points=[
-                qm.PointStruct(
-                    id=point_id,
-                    vector=[0.0],
-                    payload=payload,
-                )
-            ],
-        )
-        return metadata
 
     @staticmethod
     def _payload_to_metadata(payload: Optional[dict]) -> Optional[PackMetadata]:

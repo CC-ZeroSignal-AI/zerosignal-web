@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -25,11 +26,22 @@ class PackConfig(BaseModel):
     summary_temperature: float = 0.2
     summary_max_words: int = Field(180, description="Target max words for each summarized chunk")
     summarization_enabled: bool = True
-    ingest_base_url: str = Field(
-        "http://localhost:8000",
-        description="Base URL of the embedding server",
+    qdrant_url: str = Field(
+        "http://localhost:6333",
+        description="Qdrant server URL (or Qdrant Cloud endpoint)",
     )
-    request_timeout: int = Field(30, description="HTTP timeout when calling embeddings server")
+    qdrant_api_key: Optional[str] = Field(
+        None,
+        description="Qdrant API key (required for Qdrant Cloud)",
+    )
+    embedding_model_name: str = Field(
+        "sentence-transformers/all-MiniLM-L6-v2",
+        description="SentenceTransformer model for local embedding",
+    )
+    collection_name_prefix: str = Field(
+        "context_pack_",
+        description="Prefix for Qdrant collection names",
+    )
     batch_size: int = Field(16, gt=0, le=64)
     default_metadata: Dict[str, Any] = Field(default_factory=dict)
 
@@ -44,4 +56,14 @@ class PackConfig(BaseModel):
     def from_file(cls, path: str | Path) -> "PackConfig":
         config_path = Path(path)
         data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        # Fall back to env vars when not specified in YAML
+        env_fallbacks = {
+            "qdrant_url": "QDRANT_URL",
+            "qdrant_api_key": "QDRANT_API_KEY",
+            "embedding_model_name": "EMBEDDING_MODEL_NAME",
+            "collection_name_prefix": "COLLECTION_NAME_PREFIX",
+        }
+        for field, env_var in env_fallbacks.items():
+            if field not in data and os.getenv(env_var):
+                data[field] = os.environ[env_var]
         return cls(**data)

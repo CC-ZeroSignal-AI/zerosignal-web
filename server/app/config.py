@@ -9,11 +9,8 @@ class Settings(BaseSettings):
 
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: Optional[str] = None
-    embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
     collection_name_prefix: str = "context_pack_"
     default_top_k: int = 5
-    max_batch_size: int = 32
-    openai_api_key: Optional[str] = None
     pack_registry_collection: str = "pack_registry"
 
     class Config:
