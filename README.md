@@ -73,7 +73,7 @@ The server only needs Qdrant credentials. Set these as Vercel environment variab
    | `EMBEDDING_MODEL_NAME` | SentenceTransformers model (default `sentence-transformers/all-MiniLM-L6-v2`) |
    | `COLLECTION_NAME_PREFIX` | Collection prefix (default `context_pack_`) |
    | `OPENAI_API_KEY` | API key for LLM summarization |
-   | `OPENAI_API_BASE` | Base URL for OpenAI-compatible API (e.g. `https://llm-api.arc.vt.edu/api/v1`) |
+   | `OPENAI_API_BASE` | Base URL for OpenAI-compatible API |
 
    When `OPENAI_API_KEY` is unset, the pipeline skips summarization and uploads raw chunks.
 

@@ -1,0 +1,25 @@
+pack_id: vehicle-mechanic-roadside-pack
+default_metadata:
+  domain: "mechanical-repair"
+  language: "en"
+sources:
+  - url: https://en.wikipedia.org/wiki/Automobile_repair_shop
+    metadata:
+      topic: "auto-repair"
+  - url: https://en.wikipedia.org/wiki/Internal_combustion_engine
+    metadata:
+      topic: "engine"
+  - url: https://en.wikipedia.org/wiki/Automotive_battery
+    metadata:
+      topic: "battery"
+  - url: https://en.wikipedia.org/wiki/Flat_tire
+    metadata:
+      topic: "tire"
+chunk_size: 5000
+chunk_overlap: 540
+summary_model: gpt-oss-120b
+summary_max_words: 500
+summarization_enabled: true
+# qdrant_url and qdrant_api_key are read from env vars (QDRANT_URL, QDRANT_API_KEY)
+embedding_model_name: sentence-transformers/all-MiniLM-L6-v2
+batch_size: 16

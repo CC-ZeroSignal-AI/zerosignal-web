@@ -1,0 +1,26 @@
+pack_id: yosemite-navigation-pack
+default_metadata:
+  domain: "national-park-navigation"
+  location: "yosemite"
+  language: "en"
+sources:
+  - url: https://en.wikipedia.org/wiki/Yosemite_National_Park
+    metadata:
+      topic: "overview"
+  - url: https://en.wikipedia.org/wiki/Yosemite_Valley
+    metadata:
+      topic: "geography"
+  - url: https://en.wikipedia.org/wiki/Trail
+    metadata:
+      topic: "trails"
+  - url: https://en.wikipedia.org/wiki/Navigation
+    metadata:
+      topic: "navigation"
+chunk_size: 5000
+chunk_overlap: 540
+summary_model: gpt-oss-120b
+summary_max_words: 500
+summarization_enabled: true
+# qdrant_url and qdrant_api_key are read from env vars (QDRANT_URL, QDRANT_API_KEY)
+embedding_model_name: sentence-transformers/all-MiniLM-L6-v2
+batch_size: 16

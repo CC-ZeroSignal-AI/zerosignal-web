@@ -1,0 +1,25 @@
+pack_id: wilderness-survival-pack
+default_metadata:
+  domain: "survival"
+  language: "en"
+sources:
+  - url: https://en.wikipedia.org/wiki/Survival_skills
+    metadata:
+      topic: "survival-skills"
+  - url: https://en.wikipedia.org/wiki/Bushcraft
+    metadata:
+      topic: "wilderness"
+  - url: https://en.wikipedia.org/wiki/Water_purification
+    metadata:
+      topic: "water"
+  - url: https://en.wikipedia.org/wiki/Fire_making
+    metadata:
+      topic: "fire"
+chunk_size: 5000
+chunk_overlap: 540
+summary_model: gpt-oss-120b
+summary_max_words: 500
+summarization_enabled: true
+# qdrant_url and qdrant_api_key are read from env vars (QDRANT_URL, QDRANT_API_KEY)
+embedding_model_name: sentence-transformers/all-MiniLM-L6-v2
+batch_size: 16

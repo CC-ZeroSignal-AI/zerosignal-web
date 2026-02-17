@@ -70,6 +70,20 @@ class QdrantUploader:
                 ),
             )
 
+    # -- Clean (drop existing collection) ------------------------------------
+
+    def delete_collection(self, pack_id: str) -> bool:
+        collection_name = self._collection_name(pack_id)
+        try:
+            self._client.delete_collection(collection_name)
+            logger.info("Deleted collection %s", collection_name)
+            return True
+        except UnexpectedResponse as err:
+            if err.status_code == 404:
+                logger.info("Collection %s does not exist; nothing to delete", collection_name)
+                return False
+            raise
+
     # -- Ingest documents ----------------------------------------------------
 
     def ingest(self, pack_id: str, documents: Sequence[DocumentChunk]) -> int:

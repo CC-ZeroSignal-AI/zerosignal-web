@@ -35,6 +35,7 @@ class PackCreator:
         batch_size: int,
         output_path: Path | None = None,
         dry_run: bool = False,
+        clean: bool = False,
     ) -> None:
         self.scraper = scraper
         self.chunker = chunker
@@ -44,8 +45,13 @@ class PackCreator:
         self.batch_size = batch_size
         self.output_path = output_path
         self.dry_run = dry_run
+        self.clean = clean
 
     def run(self, config: PackConfig) -> List[ChunkPayload]:
+        if self.clean and not self.dry_run:
+            logger.info("--clean: deleting existing collection for pack %s", self.pack_id)
+            self.ingestor.delete_collection(self.pack_id)
+
         aggregated: List[ChunkPayload] = []
         for source_index, source in enumerate(config.sources):
             doc = self.scraper.fetch(str(source.url))

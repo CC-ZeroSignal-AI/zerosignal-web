@@ -39,6 +39,11 @@ def parse_args() -> argparse.Namespace:
         help="Skip the LLM summarization layer (uses raw chunks)",
     )
     parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Delete existing collection before ingesting (prevents duplicates on re-run)",
+    )
+    parser.add_argument(
         "--override-pack-id",
         help="Optional: override the pack_id defined in the YAML file",
     )
@@ -81,6 +86,7 @@ def main() -> None:
         batch_size=config.batch_size,
         output_path=output_path,
         dry_run=args.dry_run,
+        clean=args.clean,
     )
 
     creator.run(config)
